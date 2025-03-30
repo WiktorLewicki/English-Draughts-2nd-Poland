@@ -9,6 +9,7 @@ using namespace std;
 #define ABS(x) ((x) < 0 ? -(x) : (x))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
+
 #define ALWAYS_INLINE inline __attribute__((always_inline))
 #define LIKELY(x) __builtin_expect(!!(x),1)
 #define UNLIKELY(x) __builtin_expect(!!(x),0)
@@ -54,6 +55,7 @@ struct BitsetSet {
     Iterator end()   const noexcept { return { 0ULL }; }
 };
 
+
 enum Flag { EXACT, LOWERBOUND, UPPERBOUND };
 
 struct TTEntry {
@@ -90,6 +92,7 @@ ALWAYS_INLINE void tt_store(uint64_t key, int8_t depth, int16_t value, uint8_t f
     tt[index].value = value;
     tt[index].flag = flag;
 }
+
 
 class Game {
 private:
@@ -384,6 +387,7 @@ int16_t evaluatePosition(const Game &g) {
             if (!isKing && ((player == 0 && x == 0) || (player == 1 && x == 7))) {
                 val += BACKRANK_BONUS;
             }
+
             if (!isKing) {
                 if ((player == 0 && x <= 1) || (player == 1 && x >= 6))
                     val += PROMO_BONUS;
@@ -423,7 +427,6 @@ int16_t evaluatePosition(const Game &g) {
                 }
             }
             val += connectivity * CONNECTIVITY_BONUS;
-
             if (!isKing) {
                 int bx = (player == 0 ? x - 1 : x + 1);
                 if (bx >= 0 && bx < 8) {
@@ -439,18 +442,15 @@ int16_t evaluatePosition(const Game &g) {
             if (isKing) {
                 int kingMoves = countAvailableMoves(g, x, y, player);
                 val += kingMoves * KING_MOBILITY_BONUS;
-
                 if (x == 0 || x == 7 || y == 0 || y == 7)
                     val -= KING_MOBILITY_BONUS;
             }
-
             if (connectivity == 0)
                 val -= VULNERABILITY_PENALTY;
 
             score += sign * val;
         }
     }
-
     int16_t myCount = g.getFigures(!me).count();
     int16_t oppCount = g.getFigures(me).count();
     if(score <= -450 || myCount - oppCount >= 4 ){
@@ -465,9 +465,6 @@ int16_t evaluatePosition(const Game &g) {
 }
 
 
-
-
-
 ALWAYS_INLINE int scoreMove(const Game &g, const Move &m) {
     int score = 0;
     int8_t piece = g.get_cell(m.x1, m.y1);
@@ -477,7 +474,6 @@ ALWAYS_INLINE int scoreMove(const Game &g, const Move &m) {
     if (m.x2 >= 2 && m.x2 <= 5 && m.y2 >= 2 && m.y2 <= 5) score += 5;
     return score;
 }
-
 
 ALWAYS_INLINE void sortMoves(const Game &g, Move moves[], int moveCount) {
     for (int i = 1; i < moveCount; i++) {
@@ -491,7 +487,6 @@ ALWAYS_INLINE void sortMoves(const Game &g, Move moves[], int moveCount) {
         moves[j+1] = key;
     }
 }
-
 
 static struct timeval global_start_time;
 
@@ -647,7 +642,7 @@ int main(int argc, char **argv) {
     getline(cin, my_color);
     Game gra(my_color);
     while(1) {
-
+        
         gra.reset1();
         for(int i = 0; i < 8; i++) {
             string input_line;
