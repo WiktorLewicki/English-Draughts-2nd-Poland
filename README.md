@@ -9,5 +9,5 @@ The core algorithm is based on minimax with a search depth of 8, enhanced by alp
 I am currently refactoring the code to use bitboards, which should enable a search depth of 10 within the same time constraints, and I’m also working on improving the evaluation function.
 
 
-![Global Leaderboard](https://imgur.com/a/whUlZt6)
-![PL Leaderboard](https://imgur.com/a/4wRhE5l)
+![Global Leaderboard](zdj1.png)
+![PL Leaderboard](zdj2.png)
