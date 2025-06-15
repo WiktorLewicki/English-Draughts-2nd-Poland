@@ -1,678 +1,1184 @@
 #pragma GCC optimize "Ofast,unroll-loops,omit-frame-pointer,inline"
 #pragma GCC option("arch=native", "tune=native", "no-zero-upper")
-#pragma GCC target("rdrnd", "popcnt", "avx2", "bmi2")
+#pragma GCC target("popcnt")
 #include <bits/stdc++.h>
 #include <sys/time.h>
-#include <cstring>
-using namespace std;
-
+#define INLINE __attribute__((always_inline))inline
+#define NOINLINE __attribute__((noinline))
+#define LIKELY(x)   (__builtin_expect(!!(x), 1))
+#define UNLIKELY(x) (__builtin_expect(!!(x), 0))
 #define ABS(x) ((x) < 0 ? -(x) : (x))
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
+using namespace std;
+extern"C"{
+	extern int gettimeofday(timeval*,void*);
+}
+INLINE uint64_t getRTime(){
+	timeval t;
+	gettimeofday(&t,0);
+	return t.tv_sec*1000000UL+t.tv_usec;
+}
+class Game{
+	public:
+	uint32_t red_pawn;
+	uint32_t black_pawn;
+	uint32_t red_king;
+	uint32_t black_king;
+	
+	Game(){
+		red_king = 0;
+		black_king = 0;
+		black_pawn = 0x00000FFF;
+		red_pawn = 0xFFF00000;
+	}	
+	
+	INLINE void black_pawn_move(const uint32_t x, const uint32_t y){
+		uint32_t y_clc = (1u << y);
+		black_pawn ^= (1u << x);
+		if(UNLIKELY((y >> 2u) == 7)) black_king ^= y_clc;
+		else black_pawn ^= y_clc;
+	}
+	INLINE void red_pawn_move(const uint32_t x, const uint32_t y){
+		uint32_t y_clc = (1u << y);
+		red_pawn ^= (1u << x);
+		if(UNLIKELY((y >> 2u) == 0)) red_king ^= y_clc;
+		else red_pawn ^= y_clc;
+	}
+	INLINE void black_king_move(const uint32_t x, const uint32_t y){
+		uint32_t y_clc = (1u << y);
+		black_king ^= (1u << x);
+		black_king ^= y_clc;
+	}
+	INLINE void red_king_move(const uint32_t x, const uint32_t y){
+		uint32_t y_clc = (1u << y);
+		red_king ^= (1u << x);
+		red_king ^= y_clc;
+	}
+	INLINE void black_pawn_attack(const uint32_t x, const uint32_t y){
+		uint32_t mid = 1u << (x + 3 + ((x >> 2u) & 1u) + (x + 9u == y));
+		uint32_t y_clc = (1u << y);
+		if(UNLIKELY((y >> 2u) == 7)) black_king ^= y_clc;
+		else black_pawn ^= y_clc;
+		black_pawn ^= (1u << x);
+		red_pawn ^= red_pawn & mid;
+		red_king ^= red_king & mid;
+	}
+	INLINE void red_pawn_attack(const uint32_t x, const uint32_t y){
+		uint32_t mid = 1u << (x - 5 + ((x >> 2u) & 1u) + (x == y + 7u));
+		uint32_t y_clc = (1u << y);
+		if(UNLIKELY((y >> 2u) == 0)) red_king ^= y_clc;
+		else red_pawn ^= y_clc;
+		red_pawn ^= (1u << x);
+		black_pawn ^= black_pawn & mid;
+		black_king ^= black_king & mid;
+	}
 
-#define ALWAYS_INLINE inline __attribute__((always_inline))
-#define LIKELY(x) __builtin_expect(!!(x),1)
-#define UNLIKELY(x) __builtin_expect(!!(x),0)
-
-const int8_t MAX_DEPTH = 8;
-const int16_t INF1 = 12000;
-const int16_t INF2 = 9900;
-
-struct Move {
-    int8_t x1, y1, x2, y2;
-    Move() {}
-    Move(int8_t a, int8_t b, int8_t c, int8_t d)
-        : x1(a), y1(b), x2(c), y2(d) {}
+	INLINE void black_king_attack(const uint32_t x, const uint32_t y){
+		uint32_t mid = x + ((x >> 2u) & 1u);
+		if(y > x) mid += (x + 9u == y) + 3;
+		else mid -= 5u - (x == y + 7u);
+		mid = 1u << mid;
+		uint32_t y_clc = (1u << y);
+		black_king ^= (1u << x);
+		black_king ^= y_clc;
+		red_pawn ^= red_pawn & mid;
+		red_king ^= red_king & mid;
+	}
+	
+	INLINE void red_king_attack(const uint32_t x, const uint32_t y){
+		uint32_t mid = x + ((x >> 2u) & 1u);
+		if(y > x) mid += (x + 9u == y) + 3;
+		else mid -= 5u - (x == y + 7u);
+		mid = 1u << mid;
+		uint32_t y_clc = (1u << y);
+		red_king ^= (1u << x);
+		red_king ^= y_clc;
+		black_pawn ^= black_pawn & mid;
+		black_king ^= black_king & mid;
+	}
 };
 
-struct BitsetSet {
-    uint64_t bits = 0;
-
-    ALWAYS_INLINE void insert(const pair<int8_t,int8_t>& p) noexcept {
-        bits |= (1ULL << ((p.first << 3) | p.second));
-    }
-    ALWAYS_INLINE void erase(const pair<int8_t,int8_t>& p) noexcept {
-        bits &= ~(1ULL << ((p.first << 3) | p.second));
-    }
-    ALWAYS_INLINE void clear() noexcept { bits = 0; }
-    ALWAYS_INLINE int count() const noexcept { return __builtin_popcountll(bits); }
-
-    struct Iterator {
-        uint64_t mask;
-        Iterator(uint64_t m): mask(m) {}
-        pair<int8_t,int8_t> operator*() const {
-            int idx = __builtin_ctzll(mask);
-            return { int8_t(idx >> 3), int8_t(idx & 7) };
-        }
-        Iterator& operator++() {
-            mask &= mask - 1;
-            return *this;
-        }
-        bool operator!=(const Iterator& o) const { return mask != o.mask; }
-    };
-
-    Iterator begin() const noexcept { return { bits }; }
-    Iterator end()   const noexcept { return { 0ULL }; }
-};
-
-
-enum Flag { EXACT, LOWERBOUND, UPPERBOUND };
-
-struct TTEntry {
-    uint64_t key;
-    int8_t depth;
-    int16_t value;
-    uint8_t flag;
-};
-
-constexpr size_t TT_SIZE = 1 << 17;
-static TTEntry tt[TT_SIZE];
-
-ALWAYS_INLINE void tt_clear() {
-    memset(tt, 0, sizeof(tt));
-}
-
-ALWAYS_INLINE TTEntry* tt_lookup(uint64_t key) {
-    size_t index = key & (TT_SIZE - 1);
-    while (true) {
-        if(tt[index].key == key)
-            return &tt[index];
-        if(tt[index].key == 0)
-            return nullptr;
-        index = (index + 1) & (TT_SIZE - 1);
-    }
-}
-
-ALWAYS_INLINE void tt_store(uint64_t key, int8_t depth, int16_t value, uint8_t flag) {
-    size_t index = key & (TT_SIZE - 1);
-    while(tt[index].key != 0 && tt[index].key != key)
-        index = (index + 1) & (TT_SIZE - 1);
-    tt[index].key = key;
-    tt[index].depth = depth;
-    tt[index].value = value;
-    tt[index].flag = flag;
-}
-
-
-class Game {
-private:
-    int it1, it2;
-    bool who;
-    bool my_color;
-    bool attack_is_possible;
-    BitsetSet figures[2];
-    array<int8_t, 4> setup[20];
-    array<int8_t, 5> history[40];
-    int8_t board[8][8];
-    int8_t last1, last2;
-
-    ALWAYS_INLINE void init() {
-        it1 = it2 = -1;
-        attack_is_possible = false;
-        who = false;
-        last1 = last2 = -1;
-        figures[0].clear();
-        figures[1].clear();
-        for (int8_t i = 0; i < 8; ++i)
-            for (int j = 0; j < 8; j++)
-                board[i][j] = 0;
-        for (int8_t i = 0; i < 8; i += 2) {
-            board[0][i] = board[2][i] = 1;
-            figures[0].insert({0, i});
-            figures[0].insert({2, i});
-            board[6][i] = 2;
-            figures[1].insert({6, i});
-        }
-        for (int8_t i = 1; i < 8; i += 2) {
-            board[5][i] = board[7][i] = 2;
-            figures[1].insert({5, i});
-            figures[1].insert({7, i});
-            board[1][i] = 1;
-            figures[0].insert({1, i});
-        }
-    }
-
-    ALWAYS_INLINE bool has(const int8_t x, const int8_t y, const bool color) const {
-        return board[x][y] && (((board[x][y] & 1) ^ color) != 0);
-    }
-
-    ALWAYS_INLINE bool gd(const int8_t x, const int8_t y) const {
-        return (unsigned)x < 8 && (unsigned)y < 8;
-    }
-
-    ALWAYS_INLINE void promote(const int8_t x, const int8_t y) {
-        if(board[x][y] < 3) {
-            board[x][y] += 2;
-            ++it2;
-            history[it2] = {x, y, -1, -1, -1};
-            last1 = last2 = -2;
-        }
-    }
-
-    ALWAYS_INLINE void move(const int8_t x1, const int8_t y1, const int8_t x2, const int8_t y2, const bool save_to_history) {
-        if(save_to_history) {
-            ++it2;
-            history[it2] = {x1, y1, x2, y2, 0};
-        }
-        figures[who].erase({x1, y1});
-        board[x2][y2] = board[x1][y1];
-        board[x1][y1] = 0;
-        figures[who].insert({x2, y2});
-        if(x2 == (who ? 0 : 7)) promote(x2, y2);
-    }
-
-    ALWAYS_INLINE void attack(const int8_t x1, const int8_t y1, const int8_t x2, const int8_t y2) {
-        int8_t p1 = ((x1 + x2) >> 1), p2 = ((y1 + y2) >> 1);
-        ++it2;
-        history[it2] = {x1, y1, x2, y2, board[p1][p2]};
-        move(x1, y1, x2, y2, false);
-        figures[!who].erase({p1, p2});
-        board[p1][p2] = 0;
-    }
-
-public:
-    Game(const string &mycolor) {
-        my_color = (mycolor == "b");
-        init();
-    }
-
-    ALWAYS_INLINE uint64_t getHash() const {
-        uint64_t hash = 1469598103934665603ULL;
-        for (int i = 0; i < 8; i++){
-            for (int j = ((i+1)&1); j < 8; j++){
-                hash ^= (unsigned char)board[i][j];
-                hash *= 1099511628211ULL;
-            }
-        }
-        hash ^= static_cast<uint64_t>(who);
-        hash *= 1099511628211ULL;
-        hash ^= static_cast<uint64_t>(last1 + 128);
-        hash *= 1099511628211ULL;
-        hash ^= static_cast<uint64_t>(last2 + 128);
-        hash *= 1099511628211ULL;
-        hash ^= static_cast<uint64_t>(attack_is_possible);
-        hash *= 1099511628211ULL;
-        return hash;
-    }
-
-    ALWAYS_INLINE void undo() {
-        array<int8_t, 4> settings = setup[it1];
-        it1--;
-        who = settings[0];
-        last1 = settings[1];
-        last2 = settings[2];
-        attack_is_possible = settings[3];
-        array<int8_t, 5> last_move = history[it2];
-        it2--;
-        if(last_move[4] == -1) {
-            board[last_move[0]][last_move[1]] -= 2;
-            last_move = history[it2];
-            it2--;
-        }
-        figures[who].erase({last_move[2], last_move[3]});
-        figures[who].insert({last_move[0], last_move[1]});
-        board[last_move[0]][last_move[1]] = board[last_move[2]][last_move[3]];
-        board[last_move[2]][last_move[3]] = 0;
-        if(last_move[4] > 0) {
-            int p1 = ((last_move[0] + last_move[2]) >> 1), p2 = ((last_move[1] + last_move[3]) >> 1);
-            board[p1][p2] = last_move[4];
-            figures[!who].insert({p1, p2});
-        }
-    }
-
-    ALWAYS_INLINE int8_t can(const int8_t x1, const int8_t y1, const int8_t x2, const int8_t y2) const {
-        if(UNLIKELY(!gd(x1, y1) || !gd(x2, y2))) return 0;
-        if(last1 != -1 && (x1 != last1 || y1 != last2)) return 0;
-        if(!has(x1, y1, who)) return 0;
-        if(board[x2][y2]) return 0;
-        int8_t vc = who ? -1 : 1;
-        if(!attack_is_possible && x1 + vc == x2 && ((y1 - 1) == y2 || (y1 + 1) == y2))
-            return 1;
-        if(x1 + (vc << 1) == x2 &&
-           ((y1 - 2 == y2 && has(x1 + vc, y1 - 1, !who)) ||
-            (y1 + 2 == y2 && has(x1 + vc, y1 + 1, !who))))
-            return 2;
-        if(board[x1][y1] > 2) {
-            vc = -vc;
-            if(!attack_is_possible && x1 + vc == x2 && ((y1 - 1) == y2 || (y1 + 1) == y2))
-                return 1;
-            if(x1 + (vc << 1) == x2 &&
-               ((y1 - 2 == y2 && has(x1 + vc, y1 - 1, !who)) ||
-                (y1 + 2 == y2 && has(x1 + vc, y1 + 1, !who))))
-                return 2;
-        }
-        return 0;
-    }
-
-    ALWAYS_INLINE bool figure_possibly_knock(const int8_t i, const int8_t j, const int8_t vc) const {
-        return can(i, j, i + vc, j - vc) || can(i, j, i + vc, j + vc) ||
-               (board[i][j] > 2 && (can(i, j, i - vc, j - vc) || can(i, j, i - vc, j + vc)));
-    }
-
-    ALWAYS_INLINE bool check_possibly_knock() const {
-        int8_t vc = who ? -2 : 2;
-        for(auto v : figures[who])
-            if(figure_possibly_knock(v.first, v.second, vc))
-                return true;
-        return false;
-    }
-
-    ALWAYS_INLINE int8_t final_move(const int8_t x1, const int8_t y1, const int8_t x2, const int8_t y2) {
-        int8_t possible = can(x1, y1, x2, y2);
-        if(!possible) return 0;
-        ++it1;
-        setup[it1] = { (int8_t)who, last1, last2, (int8_t)attack_is_possible };
-        if(possible == 1) {
-            move(x1, y1, x2, y2, true);
-            last1 = last2 = -1;
-            who = !who;
-            attack_is_possible = check_possibly_knock();
-            return 1;
-        }
-        last1 = x2; last2 = y2;
-        attack(x1, y1, x2, y2);
-        int8_t vc = who ? -2 : 2;
-        if(figure_possibly_knock(x2, y2, vc)) {
-            last1 = x2; last2 = y2;
-            attack_is_possible = true;
-            return 3;
-        }
-        last1 = last2 = -1;
-        who = !who;
-        attack_is_possible = check_possibly_knock();
-        return 2;
-    }
-
-    ALWAYS_INLINE bool kto() const { return who; }
-    ALWAYS_INLINE bool get_color() const { return my_color; }
-    ALWAYS_INLINE const BitsetSet& getFigures(int player) const noexcept { return figures[player]; }
-    ALWAYS_INLINE int8_t get_cell(const int8_t x, const int8_t y) const noexcept { return board[x][y]; }
-
-    ALWAYS_INLINE void reset1() {
-        who = !my_color;
-        figures[0].clear(); figures[1].clear();
-        it1 = it2 = -1;
-        last1 = last2 = -1;
-    }
-    ALWAYS_INLINE void reset2() { attack_is_possible = check_possibly_knock(); }
-    ALWAYS_INLINE void ustaw(int k, string &s) {
-        for (int j = 0; j < 8; j++) {
-            if(s[j] == '.')
-                board[k][j] = 0;
-            else if(s[j] == 'r' || s[j] == 'R') {
-                figures[1].insert({(int8_t)k, (int8_t)j});
-                board[k][j] = (s[j] == 'r') ? 2 : 4;
-            } else {
-                figures[0].insert({(int8_t)k, (int8_t)j});
-                board[k][j] = (s[j] == 'b') ? 1 : 3;
-            }
-        }
-    }
-};
-
-ALWAYS_INLINE int countAvailableMoves(const Game &g, int8_t x, int8_t y, bool color) {
-    int cnt = 0;
-    int8_t dir = color ? -1 : 1;
-    if(g.can(x, y, x+dir, y-dir)) ++cnt;
-    if(g.can(x, y, x+dir, y+dir)) ++cnt;
-    if(g.can(x, y, x+2*dir, y-2*dir)) ++cnt;
-    if(g.can(x, y, x+2*dir, y+2*dir)) ++cnt;
-    if(g.get_cell(x, y) > 2) {
-        int8_t ndir = -dir;
-        if(g.can(x, y, x+ndir, y-ndir)) ++cnt;
-        if(g.can(x, y, x+ndir, y+ndir)) ++cnt;
-        if(g.can(x, y, x+2*ndir, y-2*ndir)) ++cnt;
-        if(g.can(x, y, x+2*ndir, y+2*ndir)) ++cnt;
-    }
-    return cnt;
-}
-
-int16_t evaluatePosition(const Game &g) {
-    constexpr int16_t PAWN_BASE         = 100;
-    constexpr int16_t KING_BASE         = 170;
-    constexpr int16_t KING_ENDGAME      = 220;
-    constexpr int16_t PROMO_BONUS       = 15;
-    constexpr int16_t CAPTURE_BONUS     = 20;
-    constexpr int16_t MOBILITY_BONUS    = 2;
-    constexpr int16_t TRAPPED_PENALTY   = 10;
-    constexpr int16_t CENTER_BONUS      = 3;
-    constexpr int16_t BACKRANK_BONUS    = 5;
-    constexpr int16_t PROTECTION_BONUS  = 5;
-    constexpr int16_t ISOLATION_PENALTY = 7;
-    constexpr int16_t ADVANCEMENT_BONUS = 4;
-    constexpr int16_t CONNECTIVITY_BONUS= 3;
-    constexpr int16_t CHAIN_BONUS       = 6;
-    constexpr int16_t KING_MOBILITY_BONUS = 3;
-    constexpr int16_t VULNERABILITY_PENALTY = 5;
-    constexpr int16_t EXCHANGE_MULTIPLIER = 2;
-
-    bool me = g.get_color();
-
-    if (g.getFigures(me).count() == 0)
-        return -INF2;
-    if (g.getFigures(!me).count() == 0)
-        return INF2;
-
-    int totalPieces = g.getFigures(0).count() + g.getFigures(1).count();
-    int16_t effectiveKingValue = (totalPieces <= 6 ? KING_ENDGAME : KING_BASE);
+struct Node {
+    uint64_t key   = 0;
     int16_t score = 0;
+    uint16_t hashMove = 0;
+    uint8_t depth = 0;
+    uint8_t flag  = 0;
+};
 
-    static const int8_t centerTable[8][8] = {
-        {0, 0, 0, 0, 0, 0, 0, 0},
-        {0, 1, 1, 1, 1, 1, 1, 0},
-        {0, 1, 2, 2, 2, 2, 1, 0},
-        {0, 1, 2, 3, 3, 2, 1, 0},
-        {0, 1, 2, 3, 3, 2, 1, 0},
-        {0, 1, 2, 2, 2, 2, 1, 0},
-        {0, 1, 1, 1, 1, 1, 1, 0},
-        {0, 0, 0, 0, 0, 0, 0, 0}
-    };
+enum : uint8_t {
+    FLAG_UPPER = 0,
+    FLAG_LOWER = 1,
+    FLAG_EXACT = 2
+};
 
-    for (int player = 0; player < 2; player++) {
-        const BitsetSet &figs = g.getFigures(player);
-        int16_t sign = (player == me ? 1 : -1);
-        for (auto p : figs) {
-            int8_t x = p.first, y = p.second;
-            int8_t cell = g.get_cell(x, y);
-            bool isKing = (cell > 2);
+class FastTT {
+public:
+    static constexpr uint32_t TABLE_SIZE = (1u << 22);
+    static constexpr uint32_t SIZE_MASK  = TABLE_SIZE - 1;
 
-            int16_t val = isKing ? effectiveKingValue : PAWN_BASE;
-            val += centerTable[x][y] * CENTER_BONUS;
+    FastTT() {
+        table.resize(TABLE_SIZE);
+    }
 
-            if (!isKing) {
-                int8_t advancement = (player == 0 ? (7 - x) : x);
-                val += advancement * ADVANCEMENT_BONUS;
-            }
+    INLINE uint64_t hash(const Game &g, bool tura) const {
+		uint64_t h = 11816180607513830921ULL * g.red_pawn 
+		^ 17816992196493881569ULL * g.black_pawn 
+		^ 12329556594590792737ULL * g.red_king 
+		^ 10419611012853566743ULL * g.black_king
+		^ 0x9e3779b97f4a7c15ULL * tura;
+		h ^= (h >> 21) ^ (h >> 42);
+		return h;
+	}
 
-            if (!isKing && ((player == 0 && x == 0) || (player == 1 && x == 7))) {
-                val += BACKRANK_BONUS;
-            }
+    INLINE Node find(const Game &g, bool tura) const {
+        uint64_t key = hash(g, tura);
+        const Node &n = table[key & SIZE_MASK];
+        static constexpr Node EMPTY{}; 
+        return (n.key == key) ? n : EMPTY;
+    }
 
-            if (!isKing) {
-                if ((player == 0 && x <= 1) || (player == 1 && x >= 6))
-                    val += PROMO_BONUS;
-            }
-
-            int movesCount = countAvailableMoves(g, x, y, player);
-            val += (movesCount == 0 ? -TRAPPED_PENALTY : movesCount * MOBILITY_BONUS);
-
-            if (g.can(x, y, x+2, y+2) || g.can(x, y, x+2, y-2) ||
-                g.can(x, y, x-2, y+2) || g.can(x, y, x-2, y-2))
-                val += CAPTURE_BONUS;
-
-            int protectionCount = 0;
-            const int dx[4] = {-1, -1, 1, 1};
-            const int dy[4] = {-1, 1, -1, 1};
-            for (int d = 0; d < 4; d++) {
-                int nx = x + dx[d], ny = y + dy[d];
-                if (nx >= 0 && nx < 8 && ny >= 0 && ny < 8 && g.get_cell(nx, ny) != 0) {
-                    bool sameOwner = (((g.get_cell(nx, ny) & 1) ^ player) == 0);
-                    if (sameOwner)
-                        protectionCount++;
-                }
-            }
-            val += protectionCount * PROTECTION_BONUS;
-            if (protectionCount == 0)
-                val -= ISOLATION_PENALTY;
-
-            int connectivity = 0;
-            const int dx2[4] = {-2, -2, 2, 2};
-            const int dy2[4] = {-2, 2, -2, 2};
-            for (int d = 0; d < 4; d++) {
-                int nx = x + dx2[d], ny = y + dy2[d];
-                if (nx >= 0 && nx < 8 && ny >= 0 && ny < 8 && g.get_cell(nx, ny) != 0) {
-                    bool sameOwner = (((g.get_cell(nx, ny) & 1) ^ player) == 0);
-                    if (sameOwner)
-                        connectivity++;
-                }
-            }
-            val += connectivity * CONNECTIVITY_BONUS;
-            if (!isKing) {
-                int bx = (player == 0 ? x - 1 : x + 1);
-                if (bx >= 0 && bx < 8) {
-                    if (y - 1 >= 0 && g.get_cell(bx, y - 1) != 0 &&
-                        (((g.get_cell(bx, y - 1) & 1) ^ player) == 0))
-                        val += CHAIN_BONUS;
-                    if (y + 1 < 8 && g.get_cell(bx, y + 1) != 0 &&
-                        (((g.get_cell(bx, y + 1) & 1) ^ player) == 0))
-                        val += CHAIN_BONUS;
-                }
-            }
-
-            if (isKing) {
-                int kingMoves = countAvailableMoves(g, x, y, player);
-                val += kingMoves * KING_MOBILITY_BONUS;
-                if (x == 0 || x == 7 || y == 0 || y == 7)
-                    val -= KING_MOBILITY_BONUS;
-            }
-            if (connectivity == 0)
-                val -= VULNERABILITY_PENALTY;
-
-            score += sign * val;
+    INLINE void insert(const Game &g, uint8_t depth, int16_t score, uint16_t hashMove, uint8_t flag, bool tura) {
+        uint64_t key = hash(g, tura);
+        Node &n = table[key & SIZE_MASK];
+        if (n.key != key || depth >= n.depth) {
+            n.key = key;
+			n.score = score;
+			n.hashMove = hashMove;
+            n.depth = depth;
+            n.flag = flag;
         }
     }
-    int16_t myCount = g.getFigures(!me).count();
-    int16_t oppCount = g.getFigures(me).count();
-    if(score <= -450 || myCount - oppCount >= 4 ){
-        int16_t bonus = (myCount - oppCount) * 180;
-        score -= bonus;
+    void delete_root(const Game &g, bool tura) {
+        uint64_t key = hash(g, tura);
+        Node &n = table[key & SIZE_MASK];
+        n.depth = 0;
     }
-    else if(score >= 450 || oppCount - myCount >=4){
-        int16_t bonus = (oppCount - myCount) * 180;
-        score += bonus;
-    }
-    return score;
+private:
+    vector<Node> table;
+};
+FastTT tt;
+uint8_t MAX_DEPTH;
+template<bool Tura> int16_t dfs(const Game &state, uint8_t depth, int16_t alpha, int16_t beta);
+
+
+array<int16_t, 12> buff, saved;
+int16_t best_result;
+template<bool Tura, bool King> int16_t dfs_pom(const Game &state, uint8_t depth, uint32_t nr, int16_t alpha, int16_t beta){
+	if(UNLIKELY(depth == 0)){
+		buff[buff[11]++] = nr;
+	}
+	Game temp = state;
+	uint32_t red = temp.red_pawn | temp.red_king;
+	uint32_t black = temp.black_pawn | temp.black_king;
+	uint32_t all = black | red;
+	uint32_t pm = 1u << nr;
+	uint32_t attack_left, attack_right, attack_back_left, attack_back_right;
+	bool mv = true;
+	if constexpr (!Tura){
+		attack_left = (black & 0x00EEEEEE) & (((red & 0x0F0F0F0F) >> 4) | ((red & 0xF0F0F0F0) >> 3)) & ((~all) >> 7);
+		attack_right = (black & 0x00777777) & (((red & 0x0F0F0F0F) >> 5) | ((red & 0xF0F0F0F0) >> 4)) & ((~all) >> 9);
+		attack_back_left = (temp.black_king & 0xEEEEEE00) & (((red & 0x0F0F0F0F) << 4) | ((red & 0xF0F0F0F0) << 5)) & (~(all) << 9);
+		attack_back_right = (temp.black_king & 0x77777700) & (((red & 0x0F0F0F0F) << 3) | ((red & 0xF0F0F0F0) << 4)) & (~(all) << 7);
+		int16_t res = -10000;
+		if constexpr(!King){
+			if(temp.black_pawn & pm){
+				if(pm & attack_left){
+					mv = false;
+					temp.black_pawn_attack(nr, nr + 7u);
+					int16_t child = dfs_pom<false, false>(temp, depth, nr + 7u, alpha, beta);
+					if(res < child){
+						res = child;
+						if(child > alpha){
+							alpha = child;
+							if(alpha >= beta) return res;
+						}
+					}
+					temp = state;
+				}
+				if(pm & attack_right){
+					mv = false;
+					temp.black_pawn_attack(nr, nr + 9u);
+					int16_t child = dfs_pom<false, false>(temp, depth, nr + 9u, alpha, beta);
+					if(res < child){
+						res = child;
+						if(child > alpha){
+							alpha = child;
+							if(alpha >= beta) return res;
+						}
+					}
+					temp = state;
+				}
+			}
+		}
+		else{
+			if(pm & attack_left){
+				mv = false;
+				temp.black_king_attack(nr, nr + 7u);
+				int16_t child = dfs_pom<false, true>(temp, depth, nr + 7u, alpha, beta);
+				if(res < child){
+					res = child;
+					if(child > alpha){
+						alpha = child;
+						if(alpha >= beta) return res;
+					}
+				}
+				temp = state;
+			}
+			if(pm & attack_right){
+				mv = false;
+				temp.black_king_attack(nr, nr + 9u);
+				int16_t child = dfs_pom<false, true>(temp, depth, nr + 9u, alpha, beta);
+				if(res < child){
+					res = child;
+					if(child > alpha){
+						alpha = child;
+						if(alpha >= beta) return res;
+					}
+				}
+				temp = state;
+			}
+			if(pm & attack_back_left){
+				mv = false;
+				temp.black_king_attack(nr, nr - 9u);
+				int16_t child = dfs_pom<false, true>(temp, depth, nr - 9u, alpha, beta);
+				if(res < child){
+					res = child;
+					if(child > alpha){
+						alpha = child;
+						if(alpha >= beta) return res;
+					}
+				}
+				temp = state;
+			}
+			if(pm & attack_back_right){
+				mv = false;
+				temp.black_king_attack(nr, nr - 7u);
+				int16_t child = dfs_pom<false, true>(temp, depth, nr - 7u, alpha, beta);
+				if(res < child){
+					res = child;
+					if(child > alpha){
+						alpha = child;
+						if(alpha >= beta) return res;
+					}
+				}
+				temp = state;
+			}
+		}
+		if(mv){
+			if(UNLIKELY(depth == 0)){
+				array<int16_t, 12> copy = buff;
+				buff[11] = 0;
+				int16_t curr = dfs<true>(temp, depth + 1, alpha, beta);
+				if(curr > best_result){
+					best_result = curr;
+					saved = copy;
+				}
+				buff = copy;
+				buff[11]--;
+				return curr;
+			}
+			else return dfs<true>(temp, depth + 1, alpha, beta);
+		}
+		else{
+			if(UNLIKELY(depth == 0)) buff[11]--;
+			return res;
+		}
+	}
+	else{
+		attack_left = (red & 0xEEEEEE00) & (((black & 0x0F0F0F0F) << 4) | ((black & 0xF0F0F0F0) << 5)) & (~(all) << 9);
+		attack_right = (red & 0x77777700) & (((black & 0x0F0F0F0F) << 3) | ((black & 0xF0F0F0F0) << 4)) & (~(all) << 7);
+		attack_back_left = (temp.red_king & 0x00EEEEEE) & (((black & 0x0F0F0F0F) >> 4) | ((black & 0xF0F0F0F0) >> 3)) & ((~all) >> 7);
+		attack_back_right = (temp.red_king & 0x00777777) & (((black & 0x0F0F0F0F) >> 5) | ((black & 0xF0F0F0F0) >> 4)) & ((~all) >> 9);
+		int16_t res = 10000;
+		if constexpr(!King){
+			if(temp.red_pawn & pm){
+				if(pm & attack_left){
+					mv = false;
+					temp.red_pawn_attack(nr, nr - 9u);
+					int16_t child = dfs_pom<true, false>(temp, depth, nr - 9u, alpha, beta);
+					if(child < res){
+						res = child;
+						if(child < beta){
+							beta = child;
+							if(alpha >= beta) return res;
+						}
+					}
+					temp = state;
+				}
+				if(pm & attack_right){
+					mv = false;
+					temp.red_pawn_attack(nr, nr - 7u);
+					int16_t child = dfs_pom<true, false>(temp, depth, nr - 7u, alpha, beta);
+					if(child < res){
+						res = child;
+						if(child < beta){
+							beta = child;
+							if(alpha >= beta) return res;
+						}
+					}
+					temp = state;
+				}
+			}
+		}
+		else{
+			if(pm & attack_left){
+				mv = false;
+				temp.red_king_attack(nr, nr - 9u);
+				int16_t child = dfs_pom<true, true>(temp, depth, nr - 9u, alpha, beta);
+				if(child < res){
+					res = child;
+					if(child < beta){
+						beta = child;
+						if(alpha >= beta) return res;
+					}
+				}
+				temp = state;
+			}
+			if(pm & attack_right){
+				mv = false;
+				temp.red_king_attack(nr, nr - 7u);
+				int16_t child = dfs_pom<true, true>(temp, depth, nr - 7u, alpha, beta);
+				if(child < res){
+					res = child;
+					if(child < beta){
+						beta = child;
+						if(alpha >= beta) return res;
+					}
+				}
+				temp = state;
+			}
+			
+			if(pm & attack_back_left){
+				mv = false;
+				temp.red_king_attack(nr, nr + 7u);
+				int16_t child = dfs_pom<true, true>(temp, depth, nr + 7u, alpha, beta);
+				if(child < res){
+					res = child;
+					if(child < beta){
+						beta = child;
+						if(alpha >= beta) return res;
+					}
+				}
+				temp = state;
+			}
+			if(pm & attack_back_right){
+				mv = false;
+				temp.red_king_attack(nr, nr + 9u);
+				int16_t child = dfs_pom<true, true>(temp, depth, nr + 9u, alpha, beta);
+				if(child < res){
+					res = child;
+					if(child < beta){
+						beta = child;
+						if(alpha >= beta) return res;
+					}
+				}
+				temp = state;
+			}
+		}
+		if(mv){
+			if(UNLIKELY(depth == 0)){
+				array<int16_t, 12> copy = buff;
+				buff[11] = 0;
+				int16_t curr = dfs<false>(temp, depth + 1, alpha, beta);
+				if(curr < best_result){
+					best_result = curr;
+					saved = copy;
+				}
+				buff = copy;
+				buff[11]--;
+				return curr;
+			}
+			else return dfs<false>(temp, depth + 1, alpha, beta);
+		}
+		else{
+			if(UNLIKELY(depth == 0)) buff[11]--;
+			return res;
+		}
+	}
+}
+uint64_t t0;
+bool stop_iterating;
+uint16_t timeCount = 0;
+uint16_t killerMove[60][2];
+template<bool Tura> INLINE bool applyKillerMove(Game temp, uint16_t killmove, int16_t &res, int16_t &alpha, int16_t &beta, uint8_t depth, uint16_t &hashMove){
+	if(!killmove) return false;
+	uint32_t from = killmove >> 8;
+	uint32_t to = (killmove >> 2) & 31;
+	int16_t child = 32767;
+	uint32_t all = temp.black_pawn | temp.red_pawn | temp.black_king | temp.red_king;
+	if constexpr(!Tura){
+		if(!(all & (1u << to)) && ((temp.black_pawn || temp.black_king) & (1u << from))){
+			if((killmove & 1) && (temp.black_king & (1 << from))){
+				temp.black_king_move(from, to);
+				child = dfs<true>(temp, depth + 1, alpha, beta);
+			}
+			else if(!(killmove & 1) && (temp.black_pawn & (1u << from))){
+				temp.black_pawn_move(from, to);
+				child = dfs<true>(temp, depth + 1, alpha, beta);
+			}
+			if(child != 32767 && res < child){
+				res = child;
+				hashMove = killmove;
+				if(alpha < child){
+					alpha = child;
+					if(alpha >= beta) return true;
+				}
+			}
+		}
+	}
+	else{
+		if(!(all & (1u << to)) && ((temp.red_pawn || temp.red_king) & (1u << from))){
+			if((killmove & 1) && (temp.red_king & (1 << from))){
+				temp.red_king_move(from, to);
+				child = dfs<false>(temp, depth + 1, alpha, beta);
+			}
+			else if(!(killmove & 1) && (temp.red_pawn & (1u << from))){
+				temp.red_pawn_move(from, to);
+				child = dfs<false>(temp, depth + 1, alpha, beta);
+			}
+			if(child != 32767 && res > child){
+				res = child;
+				hashMove = killmove;
+				if(beta > child){
+					beta = child;
+					if(alpha >= beta) return true;
+				}
+			}
+		}
+	}
+	return false;
+}
+template<bool Tura> int16_t dfs(const Game &state, uint8_t depth, int16_t alpha, int16_t beta){
+	if(UNLIKELY(stop_iterating)) return 0;
+		if(depth == MAX_DEPTH){
+			int16_t black = __builtin_popcount(state.black_pawn) + (__builtin_popcount(state.black_king) << 1);
+			int16_t red = __builtin_popcount(state.red_pawn) + (__builtin_popcount(state.red_king) << 1);
+			black <<= 5;
+			red <<= 5;
+			uint32_t bits_black = state.black_pawn | state.black_king;
+			uint32_t bits_red = state.red_pawn | state.red_king;
+			//0000 1110 0221 1320 0231 1220 0111 0000
+			black += __builtin_popcount(bits_black & 270336);
+			//promotion zone
+			black += __builtin_popcount(state.black_pawn & 2130706686) << 1;
+			//center band
+			black += __builtin_popcount(bits_black & 1044480);
+			//most
+			black += ((int16_t)((state.black_pawn & 10u) == 10u)) << 2;
+			//triangles
+			int16_t triangles = 0;
+			triangles += __builtin_popcount((bits_black & 0x00077777) & ((bits_black & 0x000EEEEE) << 1) & (((bits_black & 0x00707070) << 4) | ((bits_black & 0x0E0E0E00) << 5)));
+			//0000 1110 0221 1320 0231 1220 0111 0000
+			red += __builtin_popcount(bits_red & 270336);
+			//promotion zone
+			red += __builtin_popcount(state.red_pawn & 2130706686) << 1;
+			//center band
+			red += __builtin_popcount(bits_red & 1044480);
+			//most
+			red += ((int16_t)((state.red_pawn & 1342177280u) == 1342177280u)) << 2;
+			//triangles
+			triangles -= __builtin_popcount(((bits_red & 0x77777000) >> 1) & (bits_red & 0xEEEEE000) & (((bits_red & 0x0E0E0E00) >> 4) | ((bits_red & 0x00707070) >> 5)));
+			
+			
+			//wyrównanie
+			triangles += ((int16_t)(__builtin_popcount(bits_black & 0x3333377F) - __builtin_popcount(bits_red & 0x77333333)));
+			triangles -= ((int16_t)(__builtin_popcount(bits_red & 0xFEECCCCC) - __builtin_popcount(bits_black & 0xCCCCCCEE)));
+			int16_t res = black - red + (triangles * 3);
+			//agresja
+			return res - (((res >> 6) + ((res >> 15) & 1) ) * 8);
+		}
+	timeCount++;
+	if(UNLIKELY((timeCount & 127) == 0)){
+		uint64_t t1 = getRTime();
+		if(UNLIKELY(t1 - t0 > 95000)){
+			int ms = (t1 - t0)/1000;
+			cerr << "Czas: " << ms << " ms, MAX_DEPTH = "<<(int)MAX_DEPTH-1<<"\n";
+			stop_iterating = true;
+			return 0;
+		}
+	}
+	int16_t origAlpha = alpha;
+	int16_t origBeta  = beta;
+	Node node = tt.find(state, Tura);
+	uint8_t rem = MAX_DEPTH - depth;
+	uint16_t hashMove = 0;
+	/* format hashmove i killerMove:
+	* hashmove >> 8, start position
+	* (hashmove >> 2) & 31, end position
+	* hashmove & 2   if equal 1 then attack, else normal move
+	* hashmove & 1   if equal 1 then king else pawn */
+	if(node.key != 0){
+		if(node.depth >= rem && depth){
+			if(node.flag == FLAG_EXACT) return node.score;
+			else if(node.flag == FLAG_LOWER) alpha = max(alpha, node.score);
+			else beta = min(beta, node.score);
+			if(alpha >= beta) return node.score;
+		}
+		hashMove = node.hashMove;
+	}
+	Game temp = state;
+	uint32_t red = temp.red_king | temp.red_pawn;
+	uint32_t black = temp.black_king | temp.black_pawn;
+	uint32_t all = red | black;
+	uint32_t attack_left, attack_right, attack_back_left, attack_back_right;
+	if constexpr(!Tura){
+		int16_t res = -10000 + depth;
+		uint32_t bits;
+		if(hashMove){
+			uint32_t from = hashMove >> 8;
+			uint32_t to = (hashMove >> 2) & 31;
+			int16_t child;
+			if(hashMove & 2){
+				if(hashMove & 1){
+					temp.black_king_attack(from, to);
+					child = dfs_pom<false, true>(temp, depth, to, alpha, beta);
+				}
+				else{
+					temp.black_pawn_attack(from, to);
+					child = dfs_pom<false, false>(temp, depth, to, alpha, beta);
+				}
+				
+			}
+			else{
+				if(hashMove & 1) temp.black_king_move(from, to);
+				else temp.black_pawn_move(from, to);
+				child = dfs<true>(temp, depth + 1, alpha, beta);
+			}
+			if(res < child){
+				res = child;
+				if(alpha < child){
+					alpha = child;
+					if(alpha >= beta){
+						if(!(hashMove & 2)){
+							killerMove[depth][1] = killerMove[depth][0];
+							killerMove[depth][0] = hashMove;
+						}
+						goto DONE1;
+					}
+				}
+			}
+			temp = state;
+		}
+		//lewo
+		attack_left = (black & 0x00EEEEEE) & (((red & 0x0F0F0F0F) >> 4) | ((red & 0xF0F0F0F0) >> 3)) & ((~all) >> 7);
+		attack_right = (black & 0x00777777) & (((red & 0x0F0F0F0F) >> 5) | ((red & 0xF0F0F0F0) >> 4)) & ((~all) >> 9);
+		attack_back_left = (temp.black_king & 0xEEEEEE00) & (((red & 0x0F0F0F0F) << 4) | ((red & 0xF0F0F0F0) << 5)) & (~(all) << 9);
+		attack_back_right = (temp.black_king & 0x77777700) & (((red & 0x0F0F0F0F) << 3) | ((red & 0xF0F0F0F0) << 4)) & (~(all) << 7);
+		if(!(attack_left | attack_right | attack_back_left| attack_back_right)){
+			if(hashMove != killerMove[depth][0] && applyKillerMove<false>(temp, killerMove[depth][0], res, alpha, beta, depth, hashMove)){
+				goto DONE1;
+			}
+			if(hashMove != killerMove[depth][1] && applyKillerMove<false>(temp, killerMove[depth][1], res, alpha, beta, depth, hashMove)){
+				uint16_t to_swap = killerMove[depth][0];
+				killerMove[depth][0] = killerMove[depth][1];
+				killerMove[depth][1] = to_swap;
+				goto DONE1;
+			}
+			bits = temp.black_pawn & 0x0FFFFFFF;
+			while (bits) {
+				uint32_t i = __builtin_ctz(bits);
+				uint16_t cond = i & 7u;
+				uint32_t pr = i + ((i >> 2u) & 1u) + 3u;
+				if(cond && !(all & (1u << pr))){
+					temp.black_pawn_move(i, pr);
+					int16_t child = dfs<true>(temp, depth + 1, alpha, beta);
+					if(res < child){
+						res = child;
+						hashMove = ((i << 6) | pr) << 2;
+						if(alpha < child){
+							alpha = child;
+							if(alpha >= beta){
+								killerMove[depth][1] = killerMove[depth][0];
+								killerMove[depth][0] = hashMove;
+								goto DONE1;
+							}
+						}
+					}
+					temp = state;
+				}
+				if((cond ^ 7) && !(all & (1u << (pr + 1)))){
+					temp.black_pawn_move(i, pr + 1);
+					int16_t child = dfs<true>(temp, depth + 1, alpha, beta);
+					if(res < child){
+						res = child;
+						hashMove = ((i << 6) | (pr + 1)) << 2;
+						if(alpha < child){
+							alpha = child;
+							if(alpha >= beta){
+								killerMove[depth][1] = killerMove[depth][0];
+								killerMove[depth][0] = hashMove;
+								goto DONE1;
+							}
+						}
+					}
+					temp = state;
+				}
+				bits &= (bits - 1u);
+			}
+			bits = temp.black_king;
+			while (bits) {
+				uint32_t i = __builtin_ctz(bits);
+				uint16_t cond = i & 7u;
+				uint32_t pr = i + ((i >> 2u) & 1u) + 3u;
+				if(i < 28){
+					if(cond && !(all & (1u << pr))){
+						temp.black_king_move(i, pr);
+						int16_t child = dfs<true>(temp, depth + 1, alpha, beta);
+						if(res < child){
+							res = child;
+							hashMove = (((i << 6) | pr) << 2) | 1;
+							if(alpha < child){
+								alpha = child;
+								if(alpha >= beta){
+									killerMove[depth][1] = killerMove[depth][0];
+									killerMove[depth][0] = hashMove;
+									goto DONE1;
+								}
+							}
+						}
+						temp = state;
+					}
+					if((cond ^ 7) && !(all & (1u << (pr + 1)))){
+						temp.black_king_move(i, pr + 1);
+						int16_t child = dfs<true>(temp, depth + 1, alpha, beta);
+						if(res < child){
+							res = child;
+							hashMove = (((i << 6) | (pr + 1)) << 2) | 1;
+							if(alpha < child){
+								alpha = child;
+								if(alpha >= beta){
+									killerMove[depth][1] = killerMove[depth][0];
+									killerMove[depth][0] = hashMove;
+									goto DONE1;
+								}
+							}
+						}
+						temp = state;
+					}
+				}
+				if(i > 3){
+					if(cond && !(all & (1u << (pr - 8u)))){
+						temp.black_king_move(i, pr - 8u);
+						int16_t child = dfs<true>(temp, depth + 1, alpha, beta);
+						if(res < child){
+							res = child;
+							hashMove = (((i << 6) | (pr - 8u)) << 2) | 1;
+							if(alpha < child){
+								alpha = child;
+								if(alpha >= beta){
+									killerMove[depth][1] = killerMove[depth][0];
+									killerMove[depth][0] = hashMove;
+									goto DONE1;
+								}
+							}
+						}
+						temp = state;
+					}
+					if((cond ^ 7) && !(all & (1u << (pr - 7u)))){
+						temp.black_king_move(i, pr - 7u);
+						int16_t child = dfs<true>(temp, depth + 1, alpha, beta);
+						if(res < child){
+							res = child;
+							hashMove = (((i << 6) | (pr - 7)) << 2) | 1;
+							if(alpha < child){
+								alpha = child;
+								if(alpha >= beta){
+									killerMove[depth][1] = killerMove[depth][0];
+									killerMove[depth][0] = hashMove;
+									goto DONE1;
+								}
+							}
+						}
+						temp = state;
+					}
+				}
+				bits &= (bits - 1u);
+			}
+		}
+		else{
+			bits = temp.black_pawn & (attack_left | attack_right);
+			while (bits) {
+				uint32_t i = __builtin_ctz(bits);
+				uint32_t mp = 1u << i;
+				if(mp & attack_left){
+					temp.black_pawn_attack(i, i + 7);
+					int16_t child = dfs_pom<false, false>(temp, depth, i + 7u, alpha, beta);
+					if(res < child){
+						res = child;
+						hashMove = (((i << 6) | (i + 7)) << 2) | 2;
+						if(alpha < child){
+							alpha = child;
+							if(alpha >= beta){
+								goto DONE1;
+							}
+						}
+					}
+					temp = state;
+				}
+				if(mp & attack_right){
+					temp.black_pawn_attack(i, i + 9u);
+					int16_t child = dfs_pom<false, false>(temp, depth, i + 9u, alpha, beta);
+					if(res < child){
+						res = child;
+						hashMove = (((i << 6) | (i + 9)) << 2) | 2;
+						if(alpha < child){
+							alpha = child;
+							if(alpha >= beta){
+								goto DONE1;
+							}
+						}
+					}
+					temp = state;
+				}
+				bits &= (bits - 1u);
+			}
+			bits = temp.black_king & (attack_left | attack_right | attack_back_left | attack_back_right);
+			while (bits) {
+				uint32_t i = __builtin_ctz(bits);
+				uint32_t mp = 1u << i;
+				if(mp & attack_left){
+					temp.black_king_attack(i, i + 7u);
+					int16_t child = dfs_pom<false, true>(temp, depth, i + 7u, alpha, beta);
+					if(res < child){
+						res = child;
+						hashMove = (((i << 6) | (i + 7)) << 2) | 3;
+						if(alpha < child){
+							alpha = child;
+							if(alpha >= beta){
+								goto DONE1;
+							}
+						}
+					}
+					temp = state;
+				}
+				if(mp & attack_right){
+					temp.black_king_attack(i, i + 9u);
+					int16_t child = dfs_pom<false, true>(temp, depth, i + 9u, alpha, beta);
+					if(res < child){
+						res = child;
+						hashMove = (((i << 6) | (i + 9)) << 2) | 3;
+						if(alpha < child){
+							alpha = child;
+							if(alpha >= beta){
+								goto DONE1;
+							}
+						}
+					}
+					temp = state;
+				}
+			
+				if(mp & attack_back_left){
+					temp.black_king_attack(i, i - 9u);
+					int16_t child = dfs_pom<false, true>(temp, depth, i - 9u, alpha, beta);
+					if(res < child){
+						res = child;
+						hashMove = (((i << 6) | (i - 9)) << 2) | 3;
+						if(alpha < child){
+							alpha = child;
+							if(alpha >= beta){
+								goto DONE1;
+							}
+						}
+					}
+					temp = state;
+				}
+				if(mp & attack_back_right){
+					temp.black_king_attack(i, i - 7u);
+					int16_t child = dfs_pom<false, true>(temp, depth, i - 7u, alpha, beta);
+					if(res < child){
+						res = child;
+						hashMove = (((i << 6) | (i - 7)) << 2) | 3;
+						if(alpha < child){
+							alpha = child;
+							if(alpha >= beta){
+								goto DONE1;
+							}
+						}
+					}
+					temp = state;
+				}
+				
+				bits &= (bits - 1u);
+			}
+		}
+		DONE1:
+		if(LIKELY(!stop_iterating)){
+			uint8_t flag;
+			if(res <= origAlpha) flag = FLAG_UPPER;
+			else if(res >= origBeta) flag = FLAG_LOWER;
+			else flag = FLAG_EXACT;
+			tt.insert(state, rem, res, hashMove, flag, Tura);
+		}
+		return res;
+	}
+	else{
+		int16_t res = 10000 - depth;
+		uint32_t bits;
+		if(hashMove){
+			uint32_t from = hashMove >> 8;
+			uint32_t to = (hashMove >> 2) & 31;
+			int16_t child;
+			if(hashMove & 2){
+				if(hashMove & 1){
+					temp.red_king_attack(from, to);
+					child = dfs_pom<true, true>(temp, depth, to, alpha, beta);
+				}
+				else{
+					temp.red_pawn_attack(from, to);
+					child = dfs_pom<true, false>(temp, depth, to, alpha, beta);
+				}
+				
+			}
+			else{
+				if(hashMove & 1) temp.red_king_move(from, to);
+				else temp.red_pawn_move(from, to);
+				child = dfs<false>(temp, depth + 1, alpha, beta);
+			}
+			if(res > child){
+				res = child;
+				if(beta > child){
+					beta = child;
+					if(alpha >= beta){
+						if(!(hashMove & 2)){
+							killerMove[depth][1] = killerMove[depth][0];
+							killerMove[depth][0] = hashMove;
+						}
+						goto DONE2;
+					}
+				}
+			}
+			temp = state;
+		}
+		attack_left = (red & 0xEEEEEE00) & (((black & 0x0F0F0F0F) << 4) | ((black & 0xF0F0F0F0) << 5)) & (~(all) << 9);
+		attack_right = (red & 0x77777700) & (((black & 0x0F0F0F0F) << 3) | ((black & 0xF0F0F0F0) << 4)) & (~(all) << 7);
+		attack_back_left = (temp.red_king & 0x00EEEEEE) & (((black & 0x0F0F0F0F) >> 4) | ((black & 0xF0F0F0F0) >> 3)) & ((~all) >> 7);
+		attack_back_right = (temp.red_king & 0x00777777) & (((black & 0x0F0F0F0F) >> 5) | ((black & 0xF0F0F0F0) >> 4)) & ((~all) >> 9);
+		if(!(attack_left | attack_right | attack_back_left| attack_back_right)){
+			if(hashMove != killerMove[depth][0] && applyKillerMove<true>(temp, killerMove[depth][0], res, alpha, beta, depth, hashMove)){
+				hashMove = killerMove[depth][0];
+				goto DONE2;
+			}
+			if(hashMove != killerMove[depth][1] && applyKillerMove<true>(temp, killerMove[depth][1], res, alpha, beta, depth, hashMove)){
+				uint16_t to_swap = killerMove[depth][0];
+				killerMove[depth][0] = killerMove[depth][1];
+				killerMove[depth][1] = to_swap;
+				goto DONE2;
+			}
+			temp = state;
+			bits = temp.red_pawn & 0xFFFFFFF0;
+			while (bits) {
+				uint32_t i = __builtin_ctz(bits);
+				uint16_t cond = i & 7u;
+				uint32_t pr = i + ((i >> 2u) & 1u) - 5u;
+				if(cond && !(all & (1u << pr))){
+					temp.red_pawn_move(i, pr);
+					int16_t child = dfs<false>(temp, depth + 1, alpha, beta);
+					if(res > child){
+						res = child;
+						hashMove = ((i << 6) | pr) << 2;
+						if(beta > child){
+							beta = child;
+							if(alpha >= beta){
+								killerMove[depth][1] = killerMove[depth][0];
+								killerMove[depth][0] = hashMove;
+								goto DONE2;
+							}
+						}
+					}
+					temp = state;
+				}
+				if((cond ^ 7) && !(all & (1u << (pr + 1)))){
+					temp.red_pawn_move(i, pr + 1);
+					int16_t child = dfs<false>(temp, depth + 1, alpha, beta);
+					if(res > child){
+						res = child;
+						hashMove = ((i << 6) | (pr + 1)) << 2;
+						if(beta > child){
+							beta = child;
+							if(alpha >= beta){
+								killerMove[depth][1] = killerMove[depth][0];
+								killerMove[depth][0] = hashMove;
+								goto DONE2;
+							}
+						}
+					}
+					temp = state;
+				}
+				bits &= (bits - 1u);
+			}
+			bits = temp.red_king;
+			while (bits) {
+				uint32_t i = __builtin_ctz(bits);
+				uint16_t cond = i & 7u;
+				uint32_t pr = i + ((i >> 2u) & 1u) + 3u;
+				if(i < 28){
+					if(cond && !(all & (1u << pr))){
+						temp.red_king_move(i, pr);
+						int16_t child = dfs<false>(temp, depth + 1, alpha, beta);
+						if(res > child){
+							res = child;
+							hashMove = (((i << 6) | pr) << 2) | 1;
+							if(beta > child){
+								beta = child;
+								if(alpha >= beta){
+									killerMove[depth][1] = killerMove[depth][0];
+									killerMove[depth][0] = hashMove;
+									goto DONE2;
+								}
+							}
+						}
+						temp = state;
+					}
+					if((cond ^ 7) && !(all & (1u << (pr + 1u)))){
+						temp.red_king_move(i, pr + 1u);
+						int16_t child = dfs<false>(temp, depth + 1, alpha, beta);
+						if(res > child){
+							res = child;
+							hashMove = (((i << 6) | (pr + 1)) << 2) | 1;
+							if(beta > child){
+								beta = child;
+								if(alpha >= beta){
+									killerMove[depth][1] = killerMove[depth][0];
+									killerMove[depth][0] = hashMove;
+									goto DONE2;
+								}
+							}
+						}
+						temp = state;
+					}
+				}
+				if(i > 3){
+					if(cond && !(all & (1u << (pr - 8u)))){
+						temp.red_king_move(i, pr - 8u);
+						int16_t child = dfs<false>(temp, depth + 1, alpha, beta);
+						if(res > child){
+							res = child;
+							hashMove = (((i << 6) | (pr - 8u)) << 2) | 1;
+							if(beta > child){
+								beta = child;
+								if(alpha >= beta){
+									killerMove[depth][1] = killerMove[depth][0];
+									killerMove[depth][0] = hashMove;
+									goto DONE2;
+								}
+							}
+						}
+						temp = state;
+					}
+					if((cond ^ 7) && !(all & (1u << (pr - 7u)))){
+						temp.red_king_move(i, pr - 7u);
+						int16_t child = dfs<false>(temp, depth + 1, alpha, beta);
+						if(res > child){
+							res = child;
+							hashMove = (((i << 6) | (pr - 7u)) << 2) | 1;
+							if(beta > child){
+								beta = child;
+								if(alpha >= beta){
+									killerMove[depth][1] = killerMove[depth][0];
+									killerMove[depth][0] = hashMove;
+									goto DONE2;
+								}
+							}
+						}
+						temp = state;
+				}
+				}
+				bits &= (bits - 1u);
+			}
+		}
+		else{
+			bits = temp.red_pawn & (attack_left | attack_right);
+			while (bits) {
+				uint32_t i = __builtin_ctz(bits);
+				uint32_t mp = 1u << i;
+				if(mp & attack_left){
+					temp.red_pawn_attack(i, i - 9u);
+					int16_t child = dfs_pom<true, false>(temp, depth, i - 9u, alpha, beta);
+					if(res > child){
+						res = child;
+						hashMove = (((i << 6) | (i - 9u)) << 2) | 2;
+						if(beta > child){
+							beta = child;
+							if(alpha >= beta){
+								goto DONE2;
+							}
+						}
+					}
+					temp = state;
+				}
+				if(mp & attack_right){
+					temp.red_pawn_attack(i, i - 7u);
+					int16_t child = dfs_pom<true, false>(temp, depth, i - 7u, alpha, beta);
+					if(res > child){
+						res = child;
+						hashMove = (((i << 6) | (i - 7u)) << 2) | 2;
+						if(beta > child){
+							beta = child;
+							if(alpha >= beta){
+								goto DONE2;
+							}
+						}
+					}
+					temp = state;
+				}
+				bits &= (bits - 1u);
+			}
+			bits = temp.red_king & (attack_left | attack_right | attack_back_left | attack_back_right);
+			while (bits) {
+				uint32_t i = __builtin_ctz(bits);
+				uint32_t mp = 1u << i;
+				if(mp & attack_left){
+					temp.red_king_attack(i, i - 9u);
+					int16_t child = dfs_pom<true, true>(temp, depth, i - 9u, alpha, beta);
+					if(res > child){
+						res = child;
+						hashMove = (((i << 6) | (i - 9u)) << 2) | 3;
+						if(beta > child){
+							beta = child;
+							if(alpha >= beta){
+								goto DONE2;
+							}
+						}
+					}
+					temp = state;
+				}
+				if(mp & attack_right){
+					temp.red_king_attack(i, i - 7u);
+					int16_t child = dfs_pom<true, true>(temp, depth, i - 7u, alpha, beta);
+					if(res > child){
+						res = child;
+						hashMove = (((i << 6) | (i - 7u)) << 2) | 3;
+						if(beta > child){
+							beta = child;
+							if(alpha >= beta){
+								goto DONE2;
+							}
+						}
+					}
+					temp = state;
+				}
+				
+				if(mp & attack_back_left){
+					temp.red_king_attack(i, i + 7u);
+					int16_t child = dfs_pom<true, true>(temp, depth, i + 7u, alpha, beta);
+					if(res > child){
+						res = child;
+						hashMove = (((i << 6) | (i + 7u)) << 2) | 3;
+						if(beta > child){
+							beta = child;
+							if(alpha >= beta){
+								goto DONE2;
+							}
+						}
+					}
+					temp = state;
+				}
+				if(mp & attack_back_right){
+					temp.red_king_attack(i, i + 9u);
+					int16_t child = dfs_pom<true, true>(temp, depth, i + 9u, alpha, beta);
+					if(res > child){
+						res = child;
+						hashMove = (((i << 6) | (i + 9u)) << 2) | 3;
+						if(beta > child){
+							beta = child;
+							if(alpha >= beta){
+								goto DONE2;
+							}
+						}
+					}
+					temp = state;
+				}
+				
+				bits &= (bits - 1u);
+			}
+		}
+		DONE2:
+		if(LIKELY(!stop_iterating)){
+			uint8_t flag;
+			if(res <= origAlpha) flag = FLAG_UPPER;
+			else if(res >= origBeta) flag = FLAG_LOWER;
+			else flag = FLAG_EXACT;
+			tt.insert(state, rem, res, hashMove, flag, Tura);
+		}
+		return res;
+	}
+}
+string move_recovery(const Game &state, bool my_color){
+	int16_t hashMove = tt.find(state, my_color).hashMove;
+	string res = "";
+	uint32_t from = hashMove >> 8;
+	uint32_t to = (hashMove >> 2) & 31;
+	res += ('A' + ((from & 3) << 1) + ((from >> 2) & 1));
+	res += ('1' + (from >> 2));
+	res += ('A' + ((to & 3) << 1) + ((to >> 2) & 1));
+	res += ('1' + (to >> 2));
+	for(int i = 1; i < saved[11];i++){
+		res += ('A' + ((saved[i] & 3) << 1) + ((saved[i] >> 2) & 1));
+		res += ('1' + (saved[i] >> 2));
+	}
+	return res;
+}
+string BestMove(Game &state, bool my_color){
+	string answer = "";
+	stop_iterating = false;
+	for(int32_t i = 0; i < 58; i++){
+		killerMove[i][0] = killerMove[i + 2][0];
+		killerMove[i][1] = killerMove[i + 2][1];
+	}
+	for(int32_t i = 2; i <= 60; i++){
+		saved[11] = 0;
+		tt.delete_root(state, my_color);
+		buff[11] = 0;
+		best_result = (my_color) ? 10001 : -10001;
+		MAX_DEPTH = i;
+		Game temp = state;
+		if(!my_color) dfs<false>(temp, 0, -10001, 10001);
+		else dfs<true>(temp, 0, -10001, 10001);
+		if(stop_iterating) break;
+		uint64_t ms = (getRTime() - t0)/1000;
+		cerr<<i<<": ms "<<ms<<"\n";
+		answer = move_recovery(state, my_color);
+	}
+	return answer;
 }
 
-
-ALWAYS_INLINE int scoreMove(const Game &g, const Move &m) {
-    int score = 0;
-    int8_t piece = g.get_cell(m.x1, m.y1);
-    if (ABS(m.x1 - m.x2) == 2) score += 100;
-    if (piece < 3 && m.x2 == (g.kto() ? 7 : 0)) score += 50;
-    if (piece < 3) score += 10;
-    if (m.x2 >= 2 && m.x2 <= 5 && m.y2 >= 2 && m.y2 <= 5) score += 5;
-    return score;
+void update_board(Game &state, vector<string> &board){
+	state.black_pawn = state.red_pawn = state.black_king = state.red_king = 0u;
+	uint32_t lic = 0u;
+	for(uint32_t i = 0u; i < 8u; i++){
+		for(uint32_t j = i & 1u; j < 8u; j += 2u){
+			if(board[i][j] == 'b') state.black_pawn ^= (1u << lic);
+			else if(board[i][j] == 'B') state.black_king ^= (1u << lic);
+			else if(board[i][j] == 'r') state.red_pawn ^= (1u << lic);
+			else if(board[i][j] == 'R') state.red_king ^= (1u << lic);
+			lic++;
+		}	
+	}
 }
-
-ALWAYS_INLINE void sortMoves(const Game &g, Move moves[], int moveCount) {
-    for (int i = 1; i < moveCount; i++) {
-        Move key = moves[i];
-        int keyScore = scoreMove(g, key);
-        int j = i - 1;
-        while(j >= 0 && scoreMove(g, moves[j]) < keyScore) {
-            moves[j+1] = moves[j];
-            j--;
-        }
-        moves[j+1] = key;
-    }
-}
-
-static struct timeval global_start_time;
-
-int16_t minimax(Game &g, int8_t depth, int16_t alpha, int16_t beta, bool knt) {
-    struct timeval now;
-    gettimeofday(&now, NULL);
-    long elapsed = (now.tv_sec - global_start_time.tv_sec) * 1000 + (now.tv_usec - global_start_time.tv_usec) / 1000;
-    if (elapsed >= 100)
-        return evaluatePosition(g);
-    
-    uint64_t key = g.getHash();
-    TTEntry* entry = tt_lookup(key);
-    if(entry != nullptr && entry->depth >= depth) {
-         if(entry->flag == EXACT)
-              return entry->value;
-         if(entry->flag == LOWERBOUND)
-              alpha = MAX(alpha, entry->value);
-         if(entry->flag == UPPERBOUND)
-              beta = MIN(beta, entry->value);
-         if(alpha >= beta)
-              return entry->value;
-    }
-    
-    if(depth <= 0 && !knt) {
-        int16_t eval = evaluatePosition(g);
-        tt_store(key, depth, eval, EXACT);
-        return eval;
-    }
-    
-    Move moves[50];
-    int moveCount = 0;
-    bool turn = g.kto();
-    int8_t vc1 = turn ? -1 : 1, vc2 = vc1 * 2;
-    for(auto p : g.getFigures(turn)) {
-        int8_t x = p.first, y = p.second;
-        if(g.can(x, y, x+vc1, y-vc1))
-            moves[moveCount++] = Move(x, y, x+vc1, y-vc1);
-        if(g.can(x, y, x+vc1, y+vc1))
-            moves[moveCount++] = Move(x, y, x+vc1, y+vc1);
-        if(g.can(x, y, x+vc2, y-vc2))
-            moves[moveCount++] = Move(x, y, x+vc2, y-vc2);
-        if(g.can(x, y, x+vc2, y+vc2))
-            moves[moveCount++] = Move(x, y, x+vc2, y+vc2);
-        if(g.get_cell(x, y) > 2) {
-            int8_t kvc1 = -vc1, kvc2 = -vc2;
-            if(g.can(x, y, x+kvc1, y-kvc1))
-                moves[moveCount++] = Move(x, y, x+kvc1, y-kvc1);
-            if(g.can(x, y, x+kvc1, y+kvc1))
-                moves[moveCount++] = Move(x, y, x+kvc1, y+kvc1);
-            if(g.can(x, y, x+kvc2, y-kvc2))
-                moves[moveCount++] = Move(x, y, x+kvc2, y-kvc2);
-            if(g.can(x, y, x+kvc2, y+kvc2))
-                moves[moveCount++] = Move(x, y, x+kvc2, y+kvc2);
-        }
-    }
-    if(moveCount == 0) {
-        int16_t result = (g.kto() == g.get_color()) ? -(INF2 + depth) : (INF2 + depth);
-        tt_store(key, depth, result, EXACT);
-        return result;
-    }
-    sortMoves(g, moves, moveCount);
-    
-    bool maximizing = (g.kto() == g.get_color());
-    int16_t best = maximizing ? -INF1 : INF1;
-    int16_t origAlpha = alpha, origBeta = beta;
-    for(int i = 0; i < moveCount; i++) {
-        bool ct = (g.final_move(moves[i].x1, moves[i].y1, moves[i].x2, moves[i].y2) == 3);
-        int16_t score = minimax(g, depth - 1, alpha, beta, ct);
-        g.undo();
-        if(maximizing) {
-            best = MAX(best, score);
-            alpha = MAX(alpha, best);
-        } else {
-            best = MIN(best, score);
-            beta = MIN(beta, best);
-        }
-        if(alpha >= beta)
-            break;
-        
-        gettimeofday(&now, NULL);
-        elapsed = (now.tv_sec - global_start_time.tv_sec) * 1000 + (now.tv_usec - global_start_time.tv_usec) / 1000;
-        if (elapsed >= 100)
-            break;
-    }
-    
-    uint8_t flag;
-    if(best <= origAlpha)
-        flag = UPPERBOUND;
-    else if(best >= origBeta)
-        flag = LOWERBOUND;
-    else
-        flag = EXACT;
-    tt_store(key, depth, best, flag);
-    return best;
-}
-
-Move findBestMove(Game &g) {
-    Move moves[50];
-    int moveCount = 0;
-    bool turn = g.kto();
-    int8_t vc1 = turn ? -1 : 1, vc2 = vc1 * 2;
-    for(auto p : g.getFigures(turn)) {
-        int8_t x = p.first, y = p.second;
-        if(g.can(x, y, x+vc1, y-vc1))
-            moves[moveCount++] = Move(x, y, x+vc1, y-vc1);
-        if(g.can(x, y, x+vc1, y+vc1))
-            moves[moveCount++] = Move(x, y, x+vc1, y+vc1);
-        if(g.can(x, y, x+vc2, y-vc2))
-            moves[moveCount++] = Move(x, y, x+vc2, y-vc2);
-        if(g.can(x, y, x+vc2, y+vc2))
-            moves[moveCount++] = Move(x, y, x+vc2, y+vc2);
-        if(g.get_cell(x, y) > 2) {
-            int8_t kvc1 = -vc1, kvc2 = -vc2;
-            if(g.can(x, y, x+kvc1, y-kvc1))
-                moves[moveCount++] = Move(x, y, x+kvc1, y-kvc1);
-            if(g.can(x, y, x+kvc1, y+kvc1))
-                moves[moveCount++] = Move(x, y, x+kvc1, y+kvc1);
-            if(g.can(x, y, x+kvc2, y-kvc2))
-                moves[moveCount++] = Move(x, y, x+kvc2, y-kvc2);
-            if(g.can(x, y, x+kvc2, y+kvc2))
-                moves[moveCount++] = Move(x, y, x+kvc2, y+kvc2);
-        }
-    }
-    tt_clear();
-    sortMoves(g, moves, moveCount);
-    Move bestMove = moves[0];
-    int16_t bestScore = INF1;
-    for(int i = 0; i < moveCount; i++) {
-        g.final_move(moves[i].x1, moves[i].y1, moves[i].x2, moves[i].y2);
-        int16_t score = minimax(g, MAX_DEPTH - 1, -INF1, INF1, false);
-        g.undo();
-        if(score < bestScore) {
-            bestScore = score;
-            bestMove = moves[i];
-        }
-    }
-    return bestMove;
-}
-
-ALWAYS_INLINE string translate(const Move ruch) {
-    string res;
-    res.push_back('A' + ruch.y1);
-    res.push_back('1' + ruch.x1);
-    res.push_back('A' + ruch.y2);
-    res.push_back('1' + ruch.x2);
-    return res;
-}
-
-int main(int argc, char **argv) {
-    ios::sync_with_stdio(false);
-    cin.tie(nullptr);
-    string my_color;
-    getline(cin, my_color);
-    Game gra(my_color);
-    while(1) {
-        
-        gra.reset1();
-        for(int i = 0; i < 8; i++) {
+int main(){
+	Game game;
+	string color_in;
+	getline(cin, color_in);
+	bool my_color = (color_in == "w");
+	while(1){
+		vector<string> in(8);
+		for(int i = 7; i >= 0; i--) {
             string input_line;
             getline(cin, input_line);
-            gra.ustaw(7 - i, input_line);
+            in[i] = input_line;
         }
-        gra.reset2();
-        int legal_moves;
-        cin >> legal_moves; cin.ignore();
-        for(int i = 0; i < legal_moves; i++) {
-            string move_string;
-            cin >> move_string; cin.ignore();
-        }
-        string ans;
-        int info;
-        struct timeval start, end;
-        gettimeofday(&start, NULL);
-        global_start_time = start;
-        do {
-            Move ruch = findBestMove(gra);
-            info = gra.final_move(ruch.x1, ruch.y1, ruch.x2, ruch.y2);
-            if(ans.empty())
-                ans = translate(ruch);
-            else
-                ans += translate(ruch).substr(2,2);
-        } while(info == 3);
-        cout << ans << "\n";
-        
-        gettimeofday(&end, NULL);
-        long ms = (end.tv_sec - start.tv_sec) * 1000 + (end.tv_usec - start.tv_usec) / 1000;
-        cerr << ms << "\n";
-    }
+        update_board(game, in);
+		int legal_moves;
+		cin >> legal_moves;
+		cin.ignore();
+		for(int i = 0; i < legal_moves; i++){
+			string move_string;
+			cin >> move_string;
+			cin.ignore();
+		}
+		t0 = getRTime();
+		string result = BestMove(game, my_color);
+		cout<<result<<endl;
+	}
+	
 }
