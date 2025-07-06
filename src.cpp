@@ -622,7 +622,7 @@ template<bool Tura> int16_t dfs(const Game &state, uint8_t depth, int16_t alpha,
 		attack_back_left = (temp.black_king & 0xEEEEEE00) & (((red & 0x0F0F0F0F) << 4) | ((red & 0xF0F0F0F0) << 5)) & (~(all) << 9);
 		attack_back_right = (temp.black_king & 0x77777700) & (((red & 0x0F0F0F0F) << 3) | ((red & 0xF0F0F0F0) << 4)) & (~(all) << 7);
 		if(!(attack_left | attack_right | attack_back_left| attack_back_right)){
-			if((killerMove[depth][0] || killerMove[depth][1]) && applyKillerMove<false>(temp, all, res, alpha, beta, depth, hashMove)){
+			if(applyKillerMove<false>(temp, all, res, alpha, beta, depth, hashMove)){
 				goto DONE1;
 			}
 			bits = temp.black_pawn & 0x0FFFFFFF;
@@ -905,7 +905,7 @@ template<bool Tura> int16_t dfs(const Game &state, uint8_t depth, int16_t alpha,
 		attack_back_left = (temp.red_king & 0x00EEEEEE) & (((black & 0x0F0F0F0F) >> 4) | ((black & 0xF0F0F0F0) >> 3)) & ((~all) >> 7);
 		attack_back_right = (temp.red_king & 0x00777777) & (((black & 0x0F0F0F0F) >> 5) | ((black & 0xF0F0F0F0) >> 4)) & ((~all) >> 9);
 		if(!(attack_left | attack_right | attack_back_left| attack_back_right)){
-			if((killerMove[depth][0] || killerMove[depth][1]) && applyKillerMove<true>(temp, all, res, alpha, beta, depth, hashMove)){
+			if(applyKillerMove<true>(temp, all, res, alpha, beta, depth, hashMove)){
 				goto DONE2;
 			}
 			temp = state;
