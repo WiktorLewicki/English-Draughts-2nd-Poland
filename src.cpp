@@ -400,47 +400,106 @@ uint64_t t0;
 bool stop_iterating;
 uint16_t timeCount = 0;
 uint16_t killerMove[60][2];
-template<bool Tura> INLINE bool applyKillerMove(Game temp, uint32_t all, uint16_t killmove, int16_t &res, int16_t &alpha, int16_t &beta, uint8_t depth, uint16_t &hashMove){
-	uint32_t from = killmove >> 8;
-	uint32_t to = (killmove >> 2) & 31;
+template<bool Tura> INLINE bool applyKillerMove(Game temp, uint32_t all, int16_t &res, int16_t &alpha, int16_t &beta, uint8_t depth, uint16_t &hashMove){
+	uint16_t killmove = killerMove[depth][0];
 	if constexpr(!Tura){
-		int16_t child = -32767;
-		if(!(all & (1u << to)) && ((temp.black_pawn || temp.black_king) & (1u << from))){
-			if((killmove & 1) && (temp.black_king & (1 << from))){
-				temp.black_king_move(from, to);
-				child = dfs<true>(temp, depth + 1, alpha, beta);
+		if(LIKELY(killmove)){
+			uint32_t from = killmove >> 8;
+			uint32_t to = (killmove >> 2) & 31;
+			int16_t child = -32767;
+			if(!(all & (1u << to)) && ((temp.black_pawn || temp.black_king) & (1u << from))){
+				if((killmove & 1) && (temp.black_king & (1 << from))){
+					temp.black_king_move(from, to);
+					child = dfs<true>(temp, depth + 1, alpha, beta);
+				}
+				else if(!(killmove & 1) && (temp.black_pawn & (1u << from))){
+					temp.black_pawn_move(from, to);
+					child = dfs<true>(temp, depth + 1, alpha, beta);
+				}
+				if(res < child){
+					res = child;
+					hashMove = killmove;
+					if(alpha < child){
+						alpha = child;
+						if(alpha >= beta) return true;
+					}
+				}
 			}
-			else if(!(killmove & 1) && (temp.black_pawn & (1u << from))){
-				temp.black_pawn_move(from, to);
-				child = dfs<true>(temp, depth + 1, alpha, beta);
-			}
-			if(res < child){
-				res = child;
-				hashMove = killmove;
-				if(alpha < child){
-					alpha = child;
-					if(alpha >= beta) return true;
+		}
+		killmove = killerMove[depth][1];
+		if(killmove && killmove != killerMove[depth][0]){
+			uint32_t from = killmove >> 8;
+			uint32_t to = (killmove >> 2) & 31;
+			int16_t child = -32767;
+			if(!(all & (1u << to)) && ((temp.black_pawn || temp.black_king) & (1u << from))){
+				if((killmove & 1) && (temp.black_king & (1 << from))){
+					temp.black_king_move(from, to);
+					child = dfs<true>(temp, depth + 1, alpha, beta);
+				}
+				else if(!(killmove & 1) && (temp.black_pawn & (1u << from))){
+					temp.black_pawn_move(from, to);
+					child = dfs<true>(temp, depth + 1, alpha, beta);
+				}
+				if(res < child){
+					res = child;
+					hashMove = killmove;
+					killerMove[depth][1] = killerMove[depth][0];
+					killerMove[depth][0] = killmove;
+					if(alpha < child){
+						alpha = child;
+						if(alpha >= beta) return true;
+					}
 				}
 			}
 		}
 	}
 	else{
-		int16_t child = 32767;
-		if(!(all & (1u << to)) && ((temp.red_pawn || temp.red_king) & (1u << from))){
-			if((killmove & 1) && (temp.red_king & (1 << from))){
-				temp.red_king_move(from, to);
-				child = dfs<false>(temp, depth + 1, alpha, beta);
+		if(LIKELY(killmove)){
+			uint32_t from = killmove >> 8;
+			uint32_t to = (killmove >> 2) & 31;
+			int16_t child = 32767;
+			if(!(all & (1u << to)) && ((temp.red_pawn || temp.red_king) & (1u << from))){
+				if((killmove & 1) && (temp.red_king & (1 << from))){
+					temp.red_king_move(from, to);
+					child = dfs<false>(temp, depth + 1, alpha, beta);
+				}
+				else if(!(killmove & 1) && (temp.red_pawn & (1u << from))){
+					temp.red_pawn_move(from, to);
+					child = dfs<false>(temp, depth + 1, alpha, beta);
+				}
+				if(res > child){
+					res = child;
+					hashMove = killmove;
+					if(beta > child){
+						beta = child;
+						if(alpha >= beta) return true;
+					}
+				}
 			}
-			else if(!(killmove & 1) && (temp.red_pawn & (1u << from))){
-				temp.red_pawn_move(from, to);
-				child = dfs<false>(temp, depth + 1, alpha, beta);
-			}
-			if(res > child){
-				res = child;
-				hashMove = killmove;
-				if(beta > child){
-					beta = child;
-					if(alpha >= beta) return true;
+		}
+		killmove = killerMove[depth][1];
+		if(killmove && killmove != killerMove[depth][0]){
+			uint32_t from = killmove >> 8;
+			uint32_t to = (killmove >> 2) & 31;
+			int16_t child = 32767;
+			if(!(all & (1u << to)) && ((temp.red_pawn || temp.red_king) & (1u << from))){
+				if((killmove & 1) && (temp.red_king & (1 << from))){
+					temp.red_king_move(from, to);
+					child = dfs<false>(temp, depth + 1, alpha, beta);
+				}
+				else if(!(killmove & 1) && (temp.red_pawn & (1u << from))){
+					temp.red_pawn_move(from, to);
+					child = dfs<false>(temp, depth + 1, alpha, beta);
+				}
+				if(res > child){
+					res = child;
+					hashMove = killmove;
+					killerMove[depth][1] = killerMove[depth][0];
+					killerMove[depth][0] = killmove;
+					if(beta > child){
+						beta = child;
+						if(alpha >= beta) return true;
+					}
 				}
 			}
 		}
@@ -563,13 +622,7 @@ template<bool Tura> int16_t dfs(const Game &state, uint8_t depth, int16_t alpha,
 		attack_back_left = (temp.black_king & 0xEEEEEE00) & (((red & 0x0F0F0F0F) << 4) | ((red & 0xF0F0F0F0) << 5)) & (~(all) << 9);
 		attack_back_right = (temp.black_king & 0x77777700) & (((red & 0x0F0F0F0F) << 3) | ((red & 0xF0F0F0F0) << 4)) & (~(all) << 7);
 		if(!(attack_left | attack_right | attack_back_left| attack_back_right)){
-			if(killerMove[depth][0] && hashMove != killerMove[depth][0] && applyKillerMove<false>(temp, all, killerMove[depth][0], res, alpha, beta, depth, hashMove)){
-				goto DONE1;
-			}
-			if(killerMove[depth][1] && hashMove != killerMove[depth][1] && applyKillerMove<false>(temp, all, killerMove[depth][1], res, alpha, beta, depth, hashMove)){
-				uint16_t to_swap = killerMove[depth][0];
-				killerMove[depth][0] = killerMove[depth][1];
-				killerMove[depth][1] = to_swap;
+			if((killerMove[depth][0] || killerMove[depth][1]) && applyKillerMove<false>(temp, all, res, alpha, beta, depth, hashMove)){
 				goto DONE1;
 			}
 			bits = temp.black_pawn & 0x0FFFFFFF;
@@ -852,14 +905,7 @@ template<bool Tura> int16_t dfs(const Game &state, uint8_t depth, int16_t alpha,
 		attack_back_left = (temp.red_king & 0x00EEEEEE) & (((black & 0x0F0F0F0F) >> 4) | ((black & 0xF0F0F0F0) >> 3)) & ((~all) >> 7);
 		attack_back_right = (temp.red_king & 0x00777777) & (((black & 0x0F0F0F0F) >> 5) | ((black & 0xF0F0F0F0) >> 4)) & ((~all) >> 9);
 		if(!(attack_left | attack_right | attack_back_left| attack_back_right)){
-			if(killerMove[depth][0] && hashMove != killerMove[depth][0] && applyKillerMove<true>(temp, all, killerMove[depth][0], res, alpha, beta, depth, hashMove)){
-				hashMove = killerMove[depth][0];
-				goto DONE2;
-			}
-			if(killerMove[depth][1] && hashMove != killerMove[depth][1] && applyKillerMove<true>(temp, all, killerMove[depth][1], res, alpha, beta, depth, hashMove)){
-				uint16_t to_swap = killerMove[depth][0];
-				killerMove[depth][0] = killerMove[depth][1];
-				killerMove[depth][1] = to_swap;
+			if((killerMove[depth][0] || killerMove[depth][1]) && applyKillerMove<true>(temp, all, res, alpha, beta, depth, hashMove)){
 				goto DONE2;
 			}
 			temp = state;
@@ -1180,3 +1226,4 @@ int main(){
 	}
 	
 }
+
