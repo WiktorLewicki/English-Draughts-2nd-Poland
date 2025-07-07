@@ -403,7 +403,7 @@ uint16_t killerMove[60][2];
 template<bool Tura> INLINE bool applyKillerMove(Game temp, uint32_t all, int16_t &res, int16_t &alpha, int16_t &beta, uint8_t depth, uint16_t &hashMove){
 	uint16_t killmove = killerMove[depth][0];
 	if constexpr(!Tura){
-		if(LIKELY(killmove)){
+		if(killmove && killmove != hashMove){
 			uint32_t from = killmove >> 8;
 			uint32_t to = (killmove >> 2) & 31;
 			int16_t child = -32767;
@@ -454,7 +454,7 @@ template<bool Tura> INLINE bool applyKillerMove(Game temp, uint32_t all, int16_t
 		}
 	}
 	else{
-		if(LIKELY(killmove)){
+		if(killmove && killmove != hashMove){
 			uint32_t from = killmove >> 8;
 			uint32_t to = (killmove >> 2) & 31;
 			int16_t child = 32767;
@@ -548,7 +548,7 @@ template<bool Tura> int16_t dfs(const Game &state, uint8_t depth, int16_t alpha,
 	timeCount++;
 	if(UNLIKELY((timeCount & 127) == 0)){
 		uint64_t t1 = getRTime();
-		if(UNLIKELY(t1 - t0 > 95000)){
+		if(UNLIKELY(t1 - t0 > 97000)){
 			int ms = (t1 - t0)/1000;
 			cerr << "Czas: " << ms << " ms, MAX_DEPTH = "<<(int)MAX_DEPTH-1<<"\n";
 			stop_iterating = true;
@@ -1226,4 +1226,3 @@ int main(){
 	}
 	
 }
-
