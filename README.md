@@ -9,7 +9,7 @@ The core search is based on minimax with iterative deepening, enhanced by alpha-
 Currently ranked 4th worldwide (and 2nd in Poland), the main objective of this project is to claim first place—which would mean my bot has outperformed every neural-network-based opponent. Notably, it achieves this level of play without using any neural networks, relying purely on optimized bitboard search and heuristics.
 
 TODO:
-In the month following this commit, I will refactor the code to improve readability, restructure key routines to be as branch-free as possible, introduce and tune additional heuristics to further guide the search, experiment extensively and select the strongest evaluation function, apply a suite of low-level optimizations for maximal speed, and finally build a standalone application so that anyone can challenge the bot directly.
+In the two months following this commit, I will refactor the code to improve readability, restructure key routines to be as branch-free as possible, introduce and tune additional heuristics to further guide the search, experiment extensively and select the strongest evaluation function, apply a suite of low-level optimizations for maximal speed, and finally build a standalone application so that anyone can challenge the bot directly.
 
 
 ![Global Leaderboard](pic.png)
